@@ -189,9 +189,6 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 
-
-
-
 ifeq ($(LAB),$(filter $(LAB), lock))
 UPROGS += \
 	$U/_stats
@@ -257,6 +254,12 @@ endif
 UEXTRA=
 ifeq ($(LAB),util)
 	UEXTRA += user/xargstest.sh
+	UPROGS += \
+		$U/_sleep\
+		$U/_pingpong\
+		$U/_primes\
+		$U/_find\
+		$U/_xargs
 endif
 
 
