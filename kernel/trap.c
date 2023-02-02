@@ -55,8 +55,7 @@ usertrap(void)
 
     if(killed(p))
       exit(-1);
-
-    // sepc points to the ecall instruction,
+// sepc points to the ecall instruction,
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
 
@@ -77,9 +76,15 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
-
+  if(which_dev == 2) {
+	if (p->alarm_enabled && p->alarm_done && ticks >= p->alarm_ticks) {
+		p->alarm_ticks = ticks + p->alarm_interval;
+		*p->alarm_tf = *p->trapframe;
+		p->trapframe->epc = (uint64) p->alarm;
+		p->alarm_done = 0;
+	}
+	yield();
+  }
   usertrapret();
 }
 

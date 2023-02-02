@@ -327,6 +327,13 @@ sfence_vma()
   asm volatile("sfence.vma zero, zero");
 }
 
+static inline uint64 r_fp(void)
+{
+	uint64 fp;
+	asm volatile("mv %0, fp" : "=r" (fp));
+	return fp;
+}
+
 typedef uint64 pte_t;
 typedef uint64 *pagetable_t; // 512 PTEs
 

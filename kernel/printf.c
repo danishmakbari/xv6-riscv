@@ -133,3 +133,16 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void backtrace(void)
+{
+	struct proc *p = myproc();
+	uint64 current_fp = r_fp();
+	printf("backtrace:\n");
+	while (current_fp != p->kstack + PGSIZE) {
+		uint64 current_ra = *(uint64 *) (current_fp - 8);
+		printf("%p\n", (uint64 *) current_ra);
+		current_fp = *(uint64 *) (current_fp - 16);
+	}
+}
+
