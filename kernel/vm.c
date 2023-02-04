@@ -185,7 +185,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      kdecref((void*)pa);
     }
     *pte = 0;
   }
@@ -308,7 +308,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -317,18 +316,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (flags & PTE_W) {
+	    flags |= PTE_RSW;
+	    flags &= ~PTE_W;
+	    *pte = PA2PTE(pa) | flags;
+    }
+    kincref((void *) pa);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, 0);
   return -1;
 }
 
@@ -352,6 +353,8 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  uint flags;
+  pte_t *pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
@@ -361,6 +364,26 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+    
+    pte = walk(pagetable, va0, 0);
+    flags = PTE_FLAGS(*pte);
+    if (flags & PTE_RSW) {
+       uint64 newpa;
+       uint64 oldpa = pa0;
+       flags |= PTE_W;
+       flags &= ~PTE_RSW;
+
+       if (!(newpa = (uint64) kalloc())) {
+        printf("no memory\n");
+	return -1;
+       }
+        memmove((void *) newpa, (void *) oldpa, PGSIZE);
+        kdecref((void *) oldpa);
+        *pte = PA2PTE(newpa) | flags;
+        sfence_vma();
+        pa0 = newpa;
+    }
+
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;

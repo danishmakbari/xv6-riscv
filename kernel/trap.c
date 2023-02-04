@@ -65,6 +65,42 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 15) {
+	// store page fault
+	uint64 faultaddr = PGROUNDDOWN(r_stval());
+	if (!walkaddr(p->pagetable, faultaddr)) {
+    		setkilled(p);
+		exit(-1);
+	}
+	pte_t *faultpte = walk(p->pagetable, faultaddr, 0);
+	uint flags;
+	uint64 newpa, oldpa;
+	
+	if (!faultpte) {
+    		setkilled(p);
+		exit(-1);
+	}
+	
+	oldpa = PTE2PA(*faultpte);
+	flags = PTE_FLAGS(*faultpte);
+	
+	if (!((flags & PTE_V) && (flags & PTE_U) && (flags & PTE_RSW))) {
+		setkilled(p);
+		exit(-1);
+	}
+
+	flags |= PTE_W;
+	flags &= ~PTE_RSW;
+	
+	if (!(newpa = (uint64) kalloc())) {
+		setkilled(p);
+		exit(-1);
+	}
+	memmove((void *) newpa, (void *) oldpa, PGSIZE);
+	*faultpte = PA2PTE(newpa) | flags;
+	kdecref((void *) oldpa);
+	sfence_vma();
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

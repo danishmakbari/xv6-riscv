@@ -91,3 +91,19 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 sys_avail(void)
+{
+	struct proc *p = myproc();
+
+	for (uint64 va = 0; va < MAXVA; va += PGSIZE) {
+		pte_t *pte = walk(p->pagetable, va, 0);
+		if (pte && (*pte & PTE_V)) {
+			printf("va %p pa %p flags %p\n", va, PTE2PA(*pte), PTE_FLAGS(*pte));
+		}
+	}
+
+	kavail();
+	return 0;
+}
+

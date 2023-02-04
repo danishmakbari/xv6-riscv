@@ -9,10 +9,14 @@
 #include "riscv.h"
 #include "defs.h"
 
+static int pgref[PHYSTOP / PGSIZE];
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
+
+uint64 allocated = (uint64) end;
 
 struct run {
   struct run *next;
@@ -35,8 +39,10 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
+	ksetref(p, 1);
+	kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -60,6 +66,7 @@ kfree(void *pa)
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
+  allocated -= PGSIZE;
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -76,7 +83,41 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
+  if (r) {
+	  ksetref(r, 1);
+	  allocated += PGSIZE;
+  }
+
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+uint kgetref(void *pa)
+{
+	return pgref[((uint64) pa) / PGSIZE];
+}
+
+void ksetref(void *pa, uint refs)
+{
+	pgref[((uint64) pa) / PGSIZE] = refs;
+}
+
+void kincref(void *pa)
+{
+	pgref[((uint64) pa) / PGSIZE]++;
+}
+
+void kdecref(void *pa)
+{
+	if (!(--pgref[((uint64) pa) / PGSIZE])) {
+		 kfree(pa);
+	}
+}
+
+void kavail(void)
+{
+	printf("occupied pages: %d/%d\n", (allocated + (uint64) end) / PGSIZE, PHYSTOP / PGSIZE);
+}
+
+
