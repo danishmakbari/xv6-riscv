@@ -92,29 +92,93 @@ e1000_init(uint32 *xregs)
   regs[E1000_IMS] = (1 << 7); // RXDW -- Receiver Descriptor Write Back
 }
 
-int
-e1000_transmit(struct mbuf *m)
+int e1000_transmit(struct mbuf *m)
 {
-  //
-  // Your code here.
-  //
-  // the mbuf contains an ethernet frame; program it into
-  // the TX descriptor ring so that the e1000 sends it. Stash
-  // a pointer so that it can be freed after sending.
-  //
-  
-  return 0;
+	//
+	// Your code here.
+	//
+	// the mbuf contains an ethernet frame; program it into
+	// the TX descriptor ring so that the e1000 sends it. Stash
+	// a pointer so that it can be freed after sending.
+	//
+
+	uint32 tx_ring_index;
+	struct tx_desc *tx_ring_entry;
+	struct mbuf **tx_mbuf_entry;
+
+	acquire(&e1000_lock);
+
+	tx_ring_index = regs[E1000_TDT];
+	tx_ring_entry = tx_ring + tx_ring_index;
+	tx_mbuf_entry = tx_mbufs + tx_ring_index;
+
+	if (!(tx_ring_entry->status & E1000_TXD_STAT_DD)) {
+		/* tx ring overflow */
+		release(&e1000_lock);
+		return -1;	
+	}
+
+	if (*tx_mbuf_entry) {
+		mbuffree(*tx_mbuf_entry);		
+	}
+
+	*tx_mbuf_entry = m;
+
+	tx_ring_entry->addr = (uint64) (*tx_mbuf_entry)->head;
+	tx_ring_entry->length = (*tx_mbuf_entry)->len;
+	tx_ring_entry->cmd |= E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+	
+	regs[E1000_TDT] = (tx_ring_index + 1) % TX_RING_SIZE;
+
+	release(&e1000_lock);
+	
+	return 0;
 }
 
-static void
-e1000_recv(void)
+static void e1000_recv(void)
 {
-  //
-  // Your code here.
-  //
-  // Check for packets that have arrived from the e1000
-  // Create and deliver an mbuf for each packet (using net_rx()).
-  //
+	//
+	// Your code here.
+	//
+	// Check for packets that have arrived from the e1000
+	// Create and deliver an mbuf for each packet (using net_rx()).
+	//
+
+	uint32 rx_ring_index;
+	struct rx_desc *rx_ring_entry;
+	struct mbuf **rx_mbuf_entry;
+
+	acquire(&e1000_lock);
+
+	rx_ring_index = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+	rx_ring_entry = rx_ring + rx_ring_index;
+	rx_mbuf_entry = rx_mbufs + rx_ring_index;
+
+	while (rx_ring_entry->status & E1000_RXD_STAT_DD) {
+		struct mbuf *new_rx_mbuf_entry;
+		if (!(new_rx_mbuf_entry = mbufalloc(0))) {
+			release(&e1000_lock);
+			return;
+		}
+
+		(*rx_mbuf_entry)->len = rx_ring_entry->length;
+		release(&e1000_lock);
+		net_rx(*rx_mbuf_entry);
+		acquire(&e1000_lock);
+
+		(*rx_mbuf_entry) = new_rx_mbuf_entry;
+
+		rx_ring_entry->addr = (uint64) new_rx_mbuf_entry->head;
+		rx_ring_entry->status = 0;
+		
+		regs[E1000_RDT] = rx_ring_index;
+		
+		rx_ring_index = (rx_ring_index + 1) % RX_RING_SIZE;
+		rx_ring_entry = rx_ring + rx_ring_index;
+		rx_mbuf_entry = rx_mbufs + rx_ring_index;
+	}
+
+	release(&e1000_lock);
 }
 
 void
